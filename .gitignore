@@ -1,0 +1,15 @@
+*-env
+*/env
+*/build
+*/dist
+*.egg-info
+*.pyc
+*.swp
+*~
+*.o
+*.moc
+*.orig
+*.log
+MANIFEST
+pylint.txt
+.DS_Store
