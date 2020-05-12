@@ -13,3 +13,10 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+*.gz
+*.u8
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal

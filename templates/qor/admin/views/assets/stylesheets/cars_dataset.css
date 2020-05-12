@@ -1,0 +1,12 @@
+canvas {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    top: 75px;
+}
+
+#vehicles_report_loader,
+#vehicle_images_report_loader {
+  display: flex;
+  position: absolute;
+}
