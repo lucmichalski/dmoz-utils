@@ -468,6 +468,20 @@ type Website struct {
 	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
 	Ranking     Rank
 	Rss         []Rss
+	Sitemaps    []Sitemap
+	RobotsTxts  []RobotsTxt
+}
+
+type RobotsTxt struct {
+	gorm.Model
+	Content string `sql:"type:longtext"`
+}
+
+type Sitemap struct {
+	gorm.Model
+	Href   string `sql:"type:longtext"`
+	Index  bool
+	Gziped bool
 }
 
 type Rss struct {

@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emiruz/textextract"
-	"github.com/gelembjuk/articletext"
+	// "github.com/emiruz/textextract"
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/proxy"
 	"github.com/gocolly/colly/v2/queue"
@@ -19,8 +18,11 @@ import (
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/qor/validations"
+	"github.com/samclarke/robotstxt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
+
+	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
 )
 
 var (
