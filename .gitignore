@@ -20,3 +20,6 @@
 *.sqlite
 *.sqlite3
 *.db-journal
+*.out
+*.csv
+*.zip

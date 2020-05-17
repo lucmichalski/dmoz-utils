@@ -1,0 +1,122 @@
+---
+version: "3.7"
+services:
+
+  converter:
+    image: lucmichalski/dmoz-dataset:latest
+    container_name: ${NAMESPACE}-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    #ports:
+    #- 9001:9001
+    networks:
+    - internal
+    - web
+    volumes:
+    - ${PWD}:/app
+    restart: unless-stopped
+    environment:
+      ND_MYSQL_DATABASE: ${ND_MYSQL_DATABASE}
+      ND_MYSQL_PASSWORD: ${ND_MYSQL_PASSWORD}
+      ND_MYSQL_ROOT_PASSWORD: ${ND_MYSQL_ROOT_PASSWORD}
+      ND_MYSQL_USER: ${ND_MYSQL_USER}
+      ND_MYSQL_PORT: ${ND_MYSQL_PORT}
+      ND_MYSQL_HOST: ${ND_MYSQL_HOST}
+    depends_on:
+    - mysql
+    #- manticore
+    links:
+    - mysql:mysql
+    #- manticore:manticore
+    command: ["go", "run", "main.go"]
+
+  mysql:
+    image: mysql:5.7
+    container_name: ${NAMESPACE}-mysql
+    ports:
+    - 3308:3306
+    volumes:
+    - ./.config/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+    # - ${PWD}/dmoz_dataset.csv:/var/lib/mysql/dmoz_dataset.csv
+    - db-data:/var/lib/mysql
+    networks:
+    - internal
+    - web
+    environment:
+      MYSQL_DATABASE: ${ND_MYSQL_DATABASE}
+      MYSQL_PASSWORD: ${ND_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${ND_MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${ND_MYSQL_USER}
+      MYSQL_PORT: ${ND_MYSQL_PORT}
+    # restart: unless-stopped
+    command: --local-infile=1
+    # command: --local-infile=1 --default-authentication-plugin=mysql_native_password
+
+  # tor-haproxy:
+  #   restart: always
+  #   container_name: ${NAMESPACE}-tor-haproxy
+  #   image: lucmichalski/tor-haproxy:latest
+  #   build:
+  #     context: .docker/tor-haproxy
+  #     dockerfile: Dockerfile
+  #   environment:
+  #   - privoxy=1
+  #   - privoxy_port=8119
+  #   - tors=25
+  #   networks:
+  #   - internal
+  #   - web
+  #   ports:
+  #   - 5566:5566
+  #   - 2090:2090
+  #   - 8119:8119
+
+  manticore:
+    image: manticoresearch/manticore:latest
+    container_name: ${NAMESPACE}-manticore
+    ports:
+    - 9306:9306
+    - 9308:9308
+    - 9312:9312
+    volumes:
+    - mt-data:/var/lib/manticore    
+    ulimits:
+      nproc: 65535
+      nofile:
+         soft: 65535
+         hard: 65535
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+    - internal
+    restart: unless-stopped
+
+  backup:
+    image: zeenlym/mariadb-backup
+    container_name: ${NAMESPACE}-backup
+    depends_on:
+    - mysql
+    restart: unless-stopped
+    networks:
+    - internal
+    environment:
+    - TIMEZONE=${TIME_ZONE}
+    - SCHEDULE=0 0 0 3 *
+    - BACKUP_METHOD=mysqldump
+    - MYSQL_HOST=mysql
+    - MYSQL_DATABASE=${ND_MYSQL_DATABASE}
+    - MYSQL_USER=${ND_MYSQL_USER}
+    - MYSQL_PASSWORD=${ND_MYSQL_PASSWORD}
+    volumes:
+    - ./shared/backup:/backup
+
+networks:
+  internal:
+  web:
+    external: true
+
+volumes:
+  db-data:
+  mt-data:
