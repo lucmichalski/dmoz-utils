@@ -17,12 +17,14 @@ import (
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/nozzle/throttler"
 	"github.com/qor/validations"
 	"github.com/samclarke/robotstxt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
 	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
+	"github.com/lucmichalski/dmoz-utils/pkg/robotstxt"
 )
 
 var (
@@ -90,11 +92,6 @@ func main() {
 			log.Fatal(err)
 		}
 		c.SetProxyFunc(rp)
-	}
-
-	wapp, err := gowap.Init("./apps.json", false)
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	// create a request queue with 1 consumer thread

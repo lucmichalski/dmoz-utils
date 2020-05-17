@@ -3,6 +3,7 @@ module github.com/lucmichalski/dmoz-utils
 go 1.14
 
 require (
+	github.com/PuerkitoBio/goquery v1.5.0
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect
@@ -13,9 +14,10 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.0 // indirect
 	github.com/gosimple/slug v1.9.0 // indirect
-	github.com/jaytaylor/html2text v0.0.0-20200412013138-3577fbdbcff7 // indirect
+	github.com/jaytaylor/html2text v0.0.0-20200412013138-3577fbdbcff7
 	github.com/jinzhu/gorm v1.9.12
 	github.com/jinzhu/now v1.0.1
+	github.com/jpillora/go-tld v1.0.0 // indirect
 	github.com/k0kubun/pp v3.0.1+incompatible
 	github.com/mattn/go-colorable v0.1.6 // indirect
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible // indirect
@@ -37,5 +39,6 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
 	github.com/theplant/cldr v0.0.0-20190423050709-9f76f7ce4ee8 // indirect
-	gopkg.in/neurosnap/sentences.v1 v1.0.6 // indirect
+	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
+	gopkg.in/neurosnap/sentences.v1 v1.0.6
 )

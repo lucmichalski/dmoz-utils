@@ -23,3 +23,5 @@
 *.out
 *.csv
 *.zip
+
+shared/backup/

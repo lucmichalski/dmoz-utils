@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/gocolly/colly/v2/queue"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
+	tld "github.com/jpillora/go-tld"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/nozzle/throttler"
 	"github.com/qor/admin"
@@ -27,8 +29,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
+	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
 	ccsv "github.com/lucmichalski/dmoz-utils/pkg/csv"
 	"github.com/lucmichalski/dmoz-utils/pkg/gowap"
+	"github.com/lucmichalski/dmoz-utils/pkg/robotstxt"
 )
 
 var (
@@ -42,6 +46,8 @@ var (
 	isScanFeeds  bool
 	isImportRDF  bool
 	isTorProxy   bool
+	isSitemap    bool
+	isHostUpdate bool
 	isOffset     int
 	isLimit      int
 	parallelJobs int
@@ -54,6 +60,8 @@ func main() {
 	pflag.IntVarP(&isOffset, "offset", "", 0, "offset x times the limit")
 	pflag.IntVarP(&isLimit, "limit", "", 500000, "limit the number of results returned.")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 64, "parallel jobs.")
+	pflag.BoolVarP(&isHostUpdate, "host-update", "", false, "update database with host and scheme")
+	pflag.BoolVarP(&isSitemap, "sitemap", "", false, "extract sitemaps from robots.txt files")
 	pflag.BoolVarP(&isImportRDF, "rdf", "r", false, "import rdf file 'content.rdf.u8'.")
 	pflag.BoolVarP(&isLoadData, "load", "l", false, "load data into file.")
 	pflag.BoolVarP(&isTorProxy, "proxy", "x", false, "use tor proxy.")
@@ -78,10 +86,12 @@ func main() {
 		}
 
 		DB.Set("gorm:table_options", "ENGINE=InnoDB CHARSET=utf8mb4")
+		DB.AutoMigrate(&AlexaWebsite{})
 		DB.AutoMigrate(&Website{})
 		DB.AutoMigrate(&Category{})
 		DB.AutoMigrate(&Rss{})
 		DB.AutoMigrate(&Rank{})
+		DB.AutoMigrate(&Sitemap{})
 		validations.RegisterCallbacks(DB)
 	}
 
@@ -104,10 +114,13 @@ func main() {
 
 		// Allow to use Admin to manage User, Product
 		website := Admin.AddResource(&Website{}, &admin.Config{Menu: []string{"Website Management"}, Priority: -1})
-		website.IndexAttrs("ID", "Link", "Path")
+		website.IndexAttrs("ID", "Link", "Path", "Domain", "Tld")
 
 		category := Admin.AddResource(&Category{}, &admin.Config{Menu: []string{"Website Management"}, Priority: -3})
 		category.Meta(&admin.Meta{Name: "Categories", Type: "select_many"})
+
+		alexaWebsite := Admin.AddResource(&AlexaWebsite{}, &admin.Config{Menu: []string{"Website Management"}, Priority: -1})
+		alexaWebsite.IndexAttrs("ID", "Link", "Path", "Domain", "Tld")
 
 		// initalize an HTTP request multiplexer
 		mux := http.NewServeMux()
@@ -146,6 +159,15 @@ func main() {
 	if isScanFeeds {
 		scanFeeds(DB)
 	}
+
+	if isSitemap {
+		scanSitemap(DB)
+	}
+
+	if isHostUpdate {
+		scanHost(DB)
+	}
+
 }
 
 // LOAD DATA INFILE '/root/dmoz_dataset.csv' INTO TABLE websites FIELDS TERMINATED BY '\t' ENCLOSED BY '"' LINES TERMINATED BY '\r\n' IGNORE 1 LINES (link,path);
@@ -158,6 +180,153 @@ func loadData(csvFile string, DB *gorm.DB) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func scanHost(DB *gorm.DB) {
+	offset := isOffset * isLimit
+
+	type result struct {
+		Link string
+	}
+	var results []result
+	query := fmt.Sprintf("select link FROM websites WHERE analyzed=1 AND status_code=200 AND tld IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	fmt.Println("query:", query)
+
+	t := throttler.New(36, 100000000)
+
+	DB.Raw(query).Scan(&results)
+	for _, r := range results {
+		go func(entry result) error {
+			defer t.Done(nil)
+			fmt.Println("entry.Link:", entry.Link)
+			website := &Website{}
+			if !DB.Where("link = ? AND tld IS NULL", entry.Link).First(&website).RecordNotFound() {
+				u, err := url.Parse(entry.Link)
+				if err != nil {
+					return err
+				}
+				website.Host = u.Host
+				website.Scheme = u.Scheme
+				t, err := tld.Parse(entry.Link)
+				if err != nil {
+					return err
+				}
+				website.Domain = t.Domain
+				website.Tld = t.TLD
+				// save website
+				if err := DB.Save(website).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}(r)
+		t.Throttle()
+	}
+
+	// throttler errors iteration
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			log.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
+	}
+
+}
+
+func scanSitemap(DB *gorm.DB) {
+	offset := isOffset * isLimit
+
+	type result struct {
+		Link string
+	}
+	var results []result
+	query := fmt.Sprintf("select link FROM websites WHERE analyzed=1 AND status_code=200 AND article_text IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	fmt.Println("query:", query)
+
+	t := throttler.New(36, 100000000)
+
+	DB.Raw(query).Scan(&results)
+	for _, r := range results {
+		go func(entry result) error {
+			defer t.Done(nil)
+			fmt.Println("entry.Link:", entry.Link)
+			if strings.HasPrefix(entry.Link, "http") {
+				website := &Website{}
+				if !DB.Where("link = ? AND article_text IS NULL", entry.Link).First(&website).RecordNotFound() {
+					// get summary
+					text, err := articletext.GetArticleTextFromUrl(entry.Link)
+					if err != nil {
+						return err
+					}
+					if text != "" {
+						website.ArticleText = text
+					}
+					// check robots.txt
+					robotsTxtLink := fmt.Sprintf("%s/robots.txt", entry.Link)
+					robotsTxtLink = strings.Replace(robotsTxtLink, "//robots.txt", "/robots.txt", -1)
+					// download content
+					content, err := downloadRobotsTxt(robotsTxtLink)
+					if err == nil {
+						if content != "" {
+							// parse robots.txt
+							robots, err := robotstxt.Parse(content, robotsTxtLink)
+							if err == nil {
+								if !strings.Contains(content, "<html") {
+									website.RobotsTxt = content
+									// strings.Join(robots.Sitemaps(), ",")
+									for _, sitemap := range robots.Sitemaps() {
+										s := Sitemap{Href: sitemap}
+										if strings.HasSuffix(sitemap, ".gz") {
+											s.Gziped = true
+										}
+										if strings.Contains(sitemap, "index") {
+											s.Index = true
+										}
+										website.Sitemaps = append(website.Sitemaps, s)
+									}
+								}
+							}
+						}
+					}
+					// save website
+					if err := DB.Save(website).Error; err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}(r)
+		t.Throttle()
+	}
+
+	// throttler errors iteration
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			log.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
+	}
+
+}
+
+func downloadRobotsTxt(rawUrl string) (string, error) {
+	// Get the data
+	resp, err := http.Get(rawUrl)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 {
+		return "", fmt.Errorf("not exists")
+	}
+	// read all
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }
 
 func importRdf(rdfFile string, DB *gorm.DB) {
@@ -466,22 +635,49 @@ type Website struct {
 	Category    Category `l10n:"sync"`
 	Wap         string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
 	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
+	TextExtract string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	ArticleText string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	RobotsTxt   string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Host        string
+	Scheme      string
+	Domain      string
+	Tld         string
 	Ranking     Rank
 	Rss         []Rss
 	Sitemaps    []Sitemap
-	RobotsTxts  []RobotsTxt
 }
 
-type RobotsTxt struct {
+type AlexaWebsite struct {
 	gorm.Model
-	Content string `sql:"type:longtext"`
+	Link        string   `gorm:"size:255;unique"`
+	Alive       bool     `gorm:"index:alive"`
+	StatusCode  int      `gorm:"index:status_code"`
+	Name        string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Path        string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Title       string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Description string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	CategoryID  uint     `l10n:"sync"`
+	Category    Category `l10n:"sync"`
+	Wap         string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
+	TextExtract string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	ArticleText string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	RobotsTxt   string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Host        string
+	Scheme      string
+	Domain      string
+	Tld         string
+	Ranking     Rank
+	Rss         []Rss
+	Sitemaps    []Sitemap
 }
 
 type Sitemap struct {
 	gorm.Model
-	Href   string `sql:"type:longtext"`
-	Index  bool
-	Gziped bool
+	Href      string `sql:"type:longtext"`
+	Index     bool
+	Gziped    bool
+	WebsiteID uint
 }
 
 type Rss struct {

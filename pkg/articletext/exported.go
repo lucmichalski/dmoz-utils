@@ -35,7 +35,7 @@ func GetArticleTextFromUrl(url string) (string, error) {
 	doc, err := goquery.NewDocument(url)
 
 	if err != nil {
-		log.Fatal(err)
+		// log.Fatal(err)
 		return "", err
 	}
 
