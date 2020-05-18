@@ -17,6 +17,7 @@ require (
 	github.com/jaytaylor/html2text v0.0.0-20200412013138-3577fbdbcff7
 	github.com/jinzhu/gorm v1.9.12
 	github.com/jinzhu/now v1.0.1
+	github.com/joeguo/tldextract v0.0.0-20180214020933-b623e0574407 // indirect
 	github.com/jpillora/go-tld v1.0.0 // indirect
 	github.com/k0kubun/pp v3.0.1+incompatible
 	github.com/mattn/go-colorable v0.1.6 // indirect
@@ -38,6 +39,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
+	github.com/tebeka/selenium v0.9.9 // indirect
 	github.com/theplant/cldr v0.0.0-20190423050709-9f76f7ce4ee8 // indirect
 	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
 	gopkg.in/neurosnap/sentences.v1 v1.0.6

@@ -19,7 +19,6 @@ import (
 	"github.com/gocolly/colly/v2/queue"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
-	tld "github.com/jpillora/go-tld"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/nozzle/throttler"
 	"github.com/qor/admin"
@@ -28,9 +27,13 @@ import (
 	"github.com/qor/validations"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
+	// "golang.org/x/net/publicsuffix"
+	// "github.com/wxiaoguang/tldparser"
 
 	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
 	ccsv "github.com/lucmichalski/dmoz-utils/pkg/csv"
+	// tld "github.com/lucmichalski/dmoz-utils/pkg/go-tld"
+	"github.com/joeguo/tldextract"
 	"github.com/lucmichalski/dmoz-utils/pkg/gowap"
 	"github.com/lucmichalski/dmoz-utils/pkg/robotstxt"
 )
@@ -189,10 +192,13 @@ func scanHost(DB *gorm.DB) {
 		Link string
 	}
 	var results []result
-	query := fmt.Sprintf("select link FROM websites WHERE analyzed=1 AND status_code=200 AND tld IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	query := fmt.Sprintf("select link FROM websites WHERE tld IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
 	fmt.Println("query:", query)
 
-	t := throttler.New(36, 100000000)
+	t := throttler.New(12, 100000000)
+
+	cache := "/tmp/tld.cache"
+	extract, _ := tldextract.New(cache, false)
 
 	DB.Raw(query).Scan(&results)
 	for _, r := range results {
@@ -207,12 +213,25 @@ func scanHost(DB *gorm.DB) {
 				}
 				website.Host = u.Host
 				website.Scheme = u.Scheme
-				t, err := tld.Parse(entry.Link)
-				if err != nil {
-					return err
-				}
-				website.Domain = t.Domain
-				website.Tld = t.TLD
+				// result:=extract.Extract(u)
+
+				/*
+					eTLD, icann := publicsuffix.PublicSuffix(entry.Link)
+
+					// Only ICANN managed domains can have a single label. Privately
+					// managed domains must have multiple labels.
+					manager := "Unmanaged"
+					if icann {
+						manager = "ICANN Managed"
+					} else if strings.IndexByte(eTLD, '.') >= 0 {
+						manager = "Privately Managed"
+					}
+
+					fmt.Printf("> %24s%16s  is  %s\n", entry.Link, eTLD, manager)
+				*/
+				t := extract.Extract(entry.Link)
+				website.Domain = t.Root
+				website.Tld = t.Tld
 				// save website
 				if err := DB.Save(website).Error; err != nil {
 					return err
@@ -241,7 +260,7 @@ func scanSitemap(DB *gorm.DB) {
 		Link string
 	}
 	var results []result
-	query := fmt.Sprintf("select link FROM websites WHERE analyzed=1 AND status_code=200 AND article_text IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	query := fmt.Sprintf("select link FROM websites WHERE article_text IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
 	fmt.Println("query:", query)
 
 	t := throttler.New(36, 100000000)
