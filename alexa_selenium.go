@@ -316,27 +316,29 @@ func createOrUpdateWebsite(db *gorm.DB, website *AlexaWebsite) error {
 
 type AlexaWebsite struct {
 	gorm.Model
-	Link        string   `gorm:"size:255;unique"`
-	Alive       bool     `gorm:"index:alive"`
-	StatusCode  int      `gorm:"index:status_code"`
-	Name        string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Path        string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Title       string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Description string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	CategoryID  uint     `l10n:"sync"`
-	Category    Category `l10n:"sync"`
-	Wap         string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
-	TextExtract string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	ArticleText string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	RobotsTxt   string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
-	Host        string
-	Scheme      string
-	Domain      string
-	Tld         string
-	Ranking     Rank
-	Rss         []Rss
-	Sitemaps    []Sitemap
+	Link           string   `gorm:"size:255;unique"`
+	Alive          bool     `gorm:"index:alive"`
+	StatusCode     int      `gorm:"index:status_code"`
+	Name           string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Path           string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Title          string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Description    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	CategoryID     uint     `l10n:"sync"`
+	Category       Category `l10n:"sync"`
+	Wap            string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Analyzed       int      `gorm:"type:tinyint" sql:"type:tinyint`
+	TextExtract    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	ArticleText    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	RobotsTxt      string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Host           string
+	Scheme         string
+	Domain         string
+	Tld            string
+	Language       string
+	LangConfidence float64
+	Ranking        Rank
+	Rss            []Rss
+	Sitemaps       []Sitemap
 }
 
 type Sitemap struct {

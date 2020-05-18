@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/PuerkitoBio/goquery v1.5.0
+	github.com/abadojack/whatlanggo v1.0.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect

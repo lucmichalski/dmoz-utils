@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abadojack/whatlanggo"
 	"github.com/beevik/etree"
 	"github.com/gin-gonic/gin"
 	"github.com/go-sql-driver/mysql"
@@ -51,6 +52,7 @@ var (
 	isTorProxy   bool
 	isSitemap    bool
 	isHostUpdate bool
+	isLangDetect bool
 	isOffset     int
 	isLimit      int
 	parallelJobs int
@@ -63,6 +65,7 @@ func main() {
 	pflag.IntVarP(&isOffset, "offset", "", 0, "offset x times the limit")
 	pflag.IntVarP(&isLimit, "limit", "", 500000, "limit the number of results returned.")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 64, "parallel jobs.")
+	pflag.BoolVarP(&isLangDetect, "lang-detect", "", false, "language detection")
 	pflag.BoolVarP(&isHostUpdate, "host-update", "", false, "update database with host and scheme")
 	pflag.BoolVarP(&isSitemap, "sitemap", "", false, "extract sitemaps from robots.txt files")
 	pflag.BoolVarP(&isImportRDF, "rdf", "r", false, "import rdf file 'content.rdf.u8'.")
@@ -171,6 +174,10 @@ func main() {
 		scanHost(DB)
 	}
 
+	if isLangDetect {
+		scanLang(DB)
+	}
+
 }
 
 // LOAD DATA INFILE '/root/dmoz_dataset.csv' INTO TABLE websites FIELDS TERMINATED BY '\t' ENCLOSED BY '"' LINES TERMINATED BY '\r\n' IGNORE 1 LINES (link,path);
@@ -182,6 +189,53 @@ func loadData(csvFile string, DB *gorm.DB) {
 	err := DB.Exec(query).Error
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+func scanLang(DB *gorm.DB) {
+	offset := isOffset * isLimit
+
+	type result struct {
+		Link        string
+		Path        string
+		Title       string
+		Description string
+		ArticleText string
+	}
+	var results []result
+	query := fmt.Sprintf("select link, path, title, description, article_text FROM websites WHERE language IS NULL AND status_code=200 AND title!='' ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	fmt.Println("query:", query)
+
+	t := throttler.New(12, 100000000)
+
+	DB.Raw(query).Scan(&results)
+	for _, r := range results {
+		go func(entry result) error {
+			defer t.Done(nil)
+			fmt.Println("entry.Link:", entry.Link)
+			website := &Website{}
+			if !DB.Where("link = ? AND language IS NULL", entry.Link).First(&website).RecordNotFound() {
+				info := whatlanggo.Detect(entry.Path + " " + entry.ArticleText + " " + entry.Title + " " + entry.Description)
+				fmt.Println("Language:", info.Lang.String(), " Script:", whatlanggo.Scripts[info.Script], " Confidence: ", info.Confidence)
+				website.Language = info.Lang.String()
+				website.LangConfidence = info.Confidence
+				// save website info
+				if err := DB.Save(website).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}(r)
+		t.Throttle()
+	}
+
+	// throttler errors iteration
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			log.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
 	}
 }
 
@@ -643,52 +697,56 @@ func checkErr(err error) {
 
 type Website struct {
 	gorm.Model
-	Link        string   `gorm:"size:255;unique"`
-	Alive       bool     `gorm:"index:alive"`
-	StatusCode  int      `gorm:"index:status_code"`
-	Name        string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Path        string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Title       string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Description string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	CategoryID  uint     `l10n:"sync"`
-	Category    Category `l10n:"sync"`
-	Wap         string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
-	TextExtract string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	ArticleText string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	RobotsTxt   string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
-	Host        string
-	Scheme      string
-	Domain      string
-	Tld         string
-	Ranking     Rank
-	Rss         []Rss
-	Sitemaps    []Sitemap
+	Link           string   `gorm:"size:255;unique"`
+	Alive          bool     `gorm:"index:alive"`
+	StatusCode     int      `gorm:"index:status_code"`
+	Name           string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Path           string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Title          string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Description    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	CategoryID     uint     `l10n:"sync"`
+	Category       Category `l10n:"sync"`
+	Wap            string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Analyzed       int      `gorm:"type:tinyint" sql:"type:tinyint`
+	TextExtract    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	ArticleText    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	RobotsTxt      string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Host           string
+	Scheme         string
+	Domain         string
+	Tld            string
+	Language       string
+	LangConfidence float64
+	Ranking        Rank
+	Rss            []Rss
+	Sitemaps       []Sitemap
 }
 
 type AlexaWebsite struct {
 	gorm.Model
-	Link        string   `gorm:"size:255;unique"`
-	Alive       bool     `gorm:"index:alive"`
-	StatusCode  int      `gorm:"index:status_code"`
-	Name        string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Path        string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
-	Title       string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Description string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	CategoryID  uint     `l10n:"sync"`
-	Category    Category `l10n:"sync"`
-	Wap         string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	Analyzed    int      `gorm:"type:tinyint" sql:"type:tinyint`
-	TextExtract string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	ArticleText string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
-	RobotsTxt   string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
-	Host        string
-	Scheme      string
-	Domain      string
-	Tld         string
-	Ranking     Rank
-	Rss         []Rss
-	Sitemaps    []Sitemap
+	Link           string   `gorm:"size:255;unique"`
+	Alive          bool     `gorm:"index:alive"`
+	StatusCode     int      `gorm:"index:status_code"`
+	Name           string   `gorm:"index:name; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Path           string   `gorm:"index:path; type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"`
+	Title          string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Description    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	CategoryID     uint     `l10n:"sync"`
+	Category       Category `l10n:"sync"`
+	Wap            string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	Analyzed       int      `gorm:"type:tinyint" sql:"type:tinyint`
+	TextExtract    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	ArticleText    string   `gorm:"type:longblob; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longblob"`
+	RobotsTxt      string   `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Host           string
+	Scheme         string
+	Domain         string
+	Tld            string
+	Language       string
+	LangConfidence float64
+	Ranking        Rank
+	Rss            []Rss
+	Sitemaps       []Sitemap
 }
 
 type Sitemap struct {
