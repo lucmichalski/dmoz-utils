@@ -33,6 +33,7 @@ import (
 
 	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
 	ccsv "github.com/lucmichalski/dmoz-utils/pkg/csv"
+	"github.com/lucmichalski/dmoz-utils/pkg/textextract"
 	// tld "github.com/lucmichalski/dmoz-utils/pkg/go-tld"
 	"github.com/joeguo/tldextract"
 	"github.com/lucmichalski/dmoz-utils/pkg/gowap"
@@ -53,6 +54,7 @@ var (
 	isSitemap    bool
 	isHostUpdate bool
 	isLangDetect bool
+	isScanHome   bool
 	isOffset     int
 	isLimit      int
 	parallelJobs int
@@ -65,6 +67,7 @@ func main() {
 	pflag.IntVarP(&isOffset, "offset", "", 0, "offset x times the limit")
 	pflag.IntVarP(&isLimit, "limit", "", 500000, "limit the number of results returned.")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 64, "parallel jobs.")
+	pflag.BoolVarP(&isScanHome, "scan-home", "", false, "scan home page.")
 	pflag.BoolVarP(&isLangDetect, "lang-detect", "", false, "language detection")
 	pflag.BoolVarP(&isHostUpdate, "host-update", "", false, "update database with host and scheme")
 	pflag.BoolVarP(&isSitemap, "sitemap", "", false, "extract sitemaps from robots.txt files")
@@ -178,6 +181,10 @@ func main() {
 		scanLang(DB)
 	}
 
+	if isScanHome {
+		scanHome(DB)
+	}
+
 }
 
 // LOAD DATA INFILE '/root/dmoz_dataset.csv' INTO TABLE websites FIELDS TERMINATED BY '\t' ENCLOSED BY '"' LINES TERMINATED BY '\r\n' IGNORE 1 LINES (link,path);
@@ -239,6 +246,56 @@ func scanLang(DB *gorm.DB) {
 	}
 }
 
+func scanHome(DB *gorm.DB) {
+	offset := isOffset * isLimit
+
+	type result struct {
+		Link string
+	}
+	var results []result
+	query := fmt.Sprintf("select link FROM websites WHERE text_extract IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
+	fmt.Println("query:", query)
+
+	t := throttler.New(12, 100000000)
+
+	DB.Raw(query).Scan(&results)
+	for _, r := range results {
+		go func(entry result) error {
+			defer t.Done(nil)
+			fmt.Println("entry.Link:", entry.Link)
+			website := &Website{}
+			if !DB.Where("link = ? AND text_extract IS NULL", entry.Link).First(&website).RecordNotFound() {
+				textextract.MinScore = 5 // the default is 5.
+				content, err := downloadContent(entry.Link)
+				if err != nil {
+					return err
+				}
+				extractedText, err := textextract.ExtractFromHtml(content)
+				if err != nil {
+					return err
+				}
+				website.TextExtract = extractedText
+				// save website
+				if err := DB.Save(website).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}(r)
+		t.Throttle()
+	}
+
+	// throttler errors iteration
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			log.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
+	}
+
+}
+
 func scanHost(DB *gorm.DB) {
 	offset := isOffset * isLimit
 
@@ -286,7 +343,7 @@ func scanHost(DB *gorm.DB) {
 				t := extract.Extract(entry.Link)
 				website.Domain = t.Root
 				website.Tld = t.Tld
-				// save website
+				// save website info
 				if err := DB.Save(website).Error; err != nil {
 					return err
 				}
@@ -339,7 +396,7 @@ func scanSitemap(DB *gorm.DB) {
 					robotsTxtLink := fmt.Sprintf("%s/robots.txt", entry.Link)
 					robotsTxtLink = strings.Replace(robotsTxtLink, "//robots.txt", "/robots.txt", -1)
 					// download content
-					content, err := downloadRobotsTxt(robotsTxtLink)
+					content, err := downloadContent(robotsTxtLink)
 					if err == nil {
 						if content != "" {
 							// parse robots.txt
@@ -384,9 +441,12 @@ func scanSitemap(DB *gorm.DB) {
 
 }
 
-func downloadRobotsTxt(rawUrl string) (string, error) {
+func downloadContent(rawUrl string) (string, error) {
 	// Get the data
-	resp, err := http.Get(rawUrl)
+	var client = &http.Client{
+		Timeout: time.Second * 10,
+	}
+	resp, err := client.Get(rawUrl)
 	if err != nil {
 		return "", err
 	}
