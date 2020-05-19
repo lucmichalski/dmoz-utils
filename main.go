@@ -28,14 +28,13 @@ import (
 	"github.com/qor/validations"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
-	// "golang.org/x/net/publicsuffix"
-	// "github.com/wxiaoguang/tldparser"
 
 	"github.com/lucmichalski/dmoz-utils/pkg/articletext"
 	ccsv "github.com/lucmichalski/dmoz-utils/pkg/csv"
 	"github.com/lucmichalski/dmoz-utils/pkg/textextract"
+	"github.com/lucmichalski/dmoz-utils/pkg/tldparser"
 	// tld "github.com/lucmichalski/dmoz-utils/pkg/go-tld"
-	"github.com/joeguo/tldextract"
+	// "github.com/joeguo/tldextract"
 	"github.com/lucmichalski/dmoz-utils/pkg/gowap"
 	"github.com/lucmichalski/dmoz-utils/pkg/robotstxt"
 )
@@ -274,10 +273,12 @@ func scanHome(DB *gorm.DB) {
 				if err != nil {
 					return err
 				}
-				website.TextExtract = extractedText
-				// save website
-				if err := DB.Save(website).Error; err != nil {
-					return err
+				if extractedText != "" {
+					website.TextExtract = extractedText
+					// save website
+					if err := DB.Save(website).Error; err != nil {
+						return err
+					}
 				}
 			}
 			return nil
@@ -308,8 +309,8 @@ func scanHost(DB *gorm.DB) {
 
 	t := throttler.New(12, 100000000)
 
-	cache := "/tmp/tld.cache"
-	extract, _ := tldextract.New(cache, false)
+	// cache := "/tmp/tld.cache"
+	// extract, _ := tldextract.New(cache, false)
 
 	DB.Raw(query).Scan(&results)
 	for _, r := range results {
@@ -340,9 +341,11 @@ func scanHost(DB *gorm.DB) {
 
 					fmt.Printf("> %24s%16s  is  %s\n", entry.Link, eTLD, manager)
 				*/
-				t := extract.Extract(entry.Link)
-				website.Domain = t.Root
-				website.Tld = t.Tld
+
+				_, dm, tld := tldparser.ParseDomain(entry.Link)
+				// t := extract.Extract(entry.Link)
+				website.Domain = dm //t.Root
+				website.Tld = tld   //t.Tld
 				// save website info
 				if err := DB.Save(website).Error; err != nil {
 					return err
