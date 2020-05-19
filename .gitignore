@@ -25,3 +25,4 @@
 *.zip
 
 shared/backup/
+utils/dmoz-parser/data/
