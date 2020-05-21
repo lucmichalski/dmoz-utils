@@ -38,7 +38,7 @@ services:
     - 3308:3306
     volumes:
     - ./.config/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
-    # - ${PWD}/dmoz_dataset.csv:/var/lib/mysql/dmoz_dataset.csv
+    - ${PWD}/shared/export/:/var/lib/mysql/export/
     - db-data:/var/lib/mysql
     networks:
     - internal

@@ -53,7 +53,9 @@ var (
 	isSitemap    bool
 	isHostUpdate bool
 	isLangDetect bool
+	isLoadDmoz   bool
 	isScanHome   bool
+	isDmozDump   bool
 	isOffset     int
 	isLimit      int
 	parallelJobs int
@@ -66,11 +68,13 @@ func main() {
 	pflag.IntVarP(&isOffset, "offset", "", 0, "offset x times the limit")
 	pflag.IntVarP(&isLimit, "limit", "", 500000, "limit the number of results returned.")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 64, "parallel jobs.")
+	pflag.BoolVarP(&isDmozDump, "dmoz-dump", "", false, "dump dmoz dataset to csv file.")
 	pflag.BoolVarP(&isScanHome, "scan-home", "", false, "scan home page.")
 	pflag.BoolVarP(&isLangDetect, "lang-detect", "", false, "language detection")
 	pflag.BoolVarP(&isHostUpdate, "host-update", "", false, "update database with host and scheme")
 	pflag.BoolVarP(&isSitemap, "sitemap", "", false, "extract sitemaps from robots.txt files")
 	pflag.BoolVarP(&isImportRDF, "rdf", "r", false, "import rdf file 'content.rdf.u8'.")
+	pflag.BoolVarP(&isLoadDmoz, "load-dmoz", "z", false, "load data dmoz content into db.")
 	pflag.BoolVarP(&isLoadData, "load", "l", false, "load data into file.")
 	pflag.BoolVarP(&isTorProxy, "proxy", "x", false, "use tor proxy.")
 	pflag.BoolVarP(&isDump, "dump", "p", false, "create csv dump.")
@@ -100,6 +104,7 @@ func main() {
 		DB.AutoMigrate(&Rss{})
 		DB.AutoMigrate(&Rank{})
 		DB.AutoMigrate(&Sitemap{})
+		DB.AutoMigrate(&Dmoz{})
 		validations.RegisterCallbacks(DB)
 	}
 
@@ -161,6 +166,9 @@ func main() {
 	if isImportRDF {
 		importRdf("./shared/dataset/content.rdf.u8", DB)
 	}
+	if isLoadDmoz {
+		loadDmoz("../gdrive/dmoz/dmoz_toplevel_lang.csv", DB)
+	}
 	if isLoadData {
 		loadData("./dmoz_dataset.csv", DB)
 	}
@@ -184,6 +192,34 @@ func main() {
 		scanHome(DB)
 	}
 
+	if isDmozDump {
+		dmozDump("dmoz_toplevel_lang26_conf_0.8.csv", DB)
+	}
+
+}
+
+func dmozDump(outputFile string, DB *gorm.DB) {
+	query := `SELECT link,title,description,path,language,lang_script,lang_iso6391,lang_iso6393,lang_confidence,path_full,path_parent 
+				INTO OUTFILE 'export/` + outputFile + `' FIELDS TERMINATED BY '\t' OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\n' 
+  				FROM dmozs
+  				WHERE lang_confidence>=0.8 AND language in ("English","German","French","Mandarin","Italian","Spanish","Russian","Japanese","Turkish","Polish","Dutch","Romanian","Czech","Swedish","Portuguese","Hungarian","Ukrainian","Danish","Finnish","Hebrew","Greek","Arabic","Bulgarian","Thai","Lithuanian","Croatian")`
+	fmt.Println(query)
+	err := DB.Exec(query).Error
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func loadDmoz(csvFile string, DB *gorm.DB) {
+	fmt.Println("loading data from file...")
+	mysql.RegisterLocalFile(csvFile)
+
+	query := `LOAD DATA LOCAL INFILE '` + csvFile + `' INTO TABLE dmozs CHARACTER SET 'utf8mb4' FIELDS TERMINATED BY '\t' ENCLOSED BY '"' LINES TERMINATED BY '\n' (link,title,description,path,language,lang_script,lang_iso6391,lang_iso6393,lang_confidence,path_full,path_parent) SET created_at = NOW(), updated_at = NOW();`
+	fmt.Println(query)
+	err := DB.Exec(query).Error
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 // LOAD DATA INFILE '/root/dmoz_dataset.csv' INTO TABLE websites FIELDS TERMINATED BY '\t' ENCLOSED BY '"' LINES TERMINATED BY '\r\n' IGNORE 1 LINES (link,path);
@@ -255,7 +291,7 @@ func scanHome(DB *gorm.DB) {
 	query := fmt.Sprintf("select link FROM websites WHERE text_extract IS NULL ORDER BY RAND() LIMIT %d,%d", offset, isLimit)
 	fmt.Println("query:", query)
 
-	t := throttler.New(12, 100000000)
+	t := throttler.New(32, 100000000)
 
 	DB.Raw(query).Scan(&results)
 	for _, r := range results {
@@ -756,6 +792,21 @@ func checkErr(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+type Dmoz struct {
+	gorm.Model
+	Link           string `gorm:"size:255;unique"`
+	Title          string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Description    string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Path           string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	PathFull       string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	PathParent     string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	Language       string
+	LangIso6391    string
+	LangIso6393    string
+	LangScript     string `gorm:"type:longtext; CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" sql:"type:longtext"`
+	LangConfidence float64
 }
 
 type Website struct {
